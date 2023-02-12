@@ -1,0 +1,23 @@
+{
+  "name": "smart-contract",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "compile": "hardhat compile",
+    "deploy": "hardhat run scripts/deploy.ts --network",
+    "test": "hardhat test",
+    "verify": "hardhat verify --network"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^2.0.1",
+    "hardhat": "^2.12.7"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^4.8.1",
+    "dotenv": "^16.0.3"
+  }
+}

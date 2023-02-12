@@ -1,0 +1,9 @@
+{
+  "dev": {},
+  "goerli": {
+    "Token": "0xbb9bfab8fED247886061Adb5236b898C74D49706",
+    "Hero": "0xD4885A25901767d10dDb7a83195aa2afA6252Cf7",
+    "HeroMarketplace": "0x3a7b4A5E79C2101dcD8A8F85dcF2f4ff8B9424aB"
+  },
+  "main": {}
+}
