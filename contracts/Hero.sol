@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/access/AccessControlEnumerable.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "hardhat/console.sol";
 
 interface IHero {
     function mint(address to, uint256 hero_type) external returns (uint256);
@@ -75,5 +76,9 @@ contract Hero is ERC721Enumerable, Ownable, AccessControlEnumerable, IHero {
 
     function setBaseUrl(string memory _newUrl) public {
         _url = _newUrl;
+    }
+
+    function getBaseUrl() public view returns (string memory) {
+        return _url;
     }
 }

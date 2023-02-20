@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { Contract } from "@ethersproject/contracts";
+import { BigNumber } from "ethers";
+import { Contract, ContractFactory } from "@ethersproject/contracts";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import * as chai from "chai";
 const chaiAsPromised = require("chai-as-promised");
@@ -13,163 +14,109 @@ function parseEther(amount: Number) {
 }
 
 describe("Vault contract", () => {
-    let owner: SignerWithAddress;
-    let alice: SignerWithAddress;
-    let bob: SignerWithAddress;
-    let carol: SignerWithAddress;
+    // const TOTAL_SUPPLY = 100;
+    // const TOKEN_URI = "https://example.com/token/";
 
-    let vault: Contract;
-    let token: Contract;
+    let heroContract: Contract;
+    let minter: SignerWithAddress;
+    let user: SignerWithAddress;
+    let owner: SignerWithAddress;
 
     async function deployVaultFixture() {
         await ethers.provider.send("hardhat_reset", []);
-        [owner, alice, bob, carol] = await ethers.getSigners();
 
-        const Vault = await ethers.getContractFactory("Vault", owner);
-        vault = await Vault.deploy();
-        const Token = await ethers.getContractFactory("Token", owner);
-        token = await Token.deploy();
-        await token.deployed();
+        [owner, minter, user] = await ethers.getSigners();
+        const heroFactory: ContractFactory = await ethers.getContractFactory("Hero", owner);
+        heroContract = await heroFactory.deploy();
+        await heroContract.deployed();
 
-        await vault.setToken(token.address);
-        await vault.deployed();
-
-        return { vault, token, owner, alice, bob, carol };
+        return { heroContract, owner, minter, user };
     }
 
-    // Happy Path
-    describe('Happy Path', () => {
-        it('Should set right Token', async () => {
-            const { vault, token } = await loadFixture(deployVaultFixture);
+    it("Should have the correct name and symbol", async () => {
+        const { heroContract } = await loadFixture(deployVaultFixture);
 
-            await vault.setToken(token.address);
+        const name = await heroContract.name();
+        expect(name).to.equal("Stickman Hero");
 
-            expect(await vault.getTokenAddress()).equal(token.address)
+        const symbol = await heroContract.symbol();
+        expect(symbol).to.equal("Hero");
+    });
+
+    it("Should have a base URI", async () => {
+        const { heroContract, owner } = await loadFixture(deployVaultFixture);
+        const baseURI = await heroContract.getBaseUrl();
+        expect(baseURI).to.be.a("string");
+    });
+
+    it("Should set a new base URI", async () => {
+        const { heroContract } = await loadFixture(deployVaultFixture);
+
+        const newURI = "https://example.com/new/token/";
+        await heroContract.setBaseUrl(newURI);
+        const baseURI = await heroContract.getBaseUrl();
+
+        expect(baseURI).to.equal(newURI);
+    });
+
+    describe("Minting", () => {
+        it("Should mint a new token", async () => {
+            const { heroContract, user } = await loadFixture(deployVaultFixture);
+            const token = await heroContract.mint(user.address, 0);
+            expect(token).to.be.a("object");
+            expect(token).to.have.property("hash");
         });
 
-        it("Should deposit into Vault", async () => {
-            const { vault, token, alice } = await loadFixture(deployVaultFixture);
-
-            await token.transfer(alice.address, parseEther(1 * 10 ** 6));
-            await token.connect(alice).approve(vault.address, token.balanceOf(alice.address));
-            await vault.connect(alice).deposit(parseEther(500 * 10 ** 3));
-            expect(await token.balanceOf(vault.address)).equal(parseEther(500 * 10 ** 3));
-            //expect(await token.balanceOf(alice.address)).equal(parseEther(50 * 10**9) - parseEther(500 * 10**3));
-
-            // console.log(await token.balanceOf(vault.address));
-            // console.log(bob.address);
+        it("Should fail to mint a new token for non-minter", async () => {
+            const { heroContract, user } = await loadFixture(deployVaultFixture);
+            const [, sign2] = await ethers.getSigners();
+            await expect(heroContract.connect(sign2).mint(user.address, 0)).to.be.revertedWith("Caller is not minter");
         });
 
-        it("Should withdraw", async () => {
-            const { vault, token, alice, bob } = await loadFixture(deployVaultFixture);
+        it("should mint a new hero token with the specified hero type", async function () {
+            const { heroContract, owner, minter, user } = await loadFixture(deployVaultFixture);
 
-            // Gán quyền rút tiền cho Bob
-            let WITHDRAW_ROLE = keccak256(Buffer.from("WITHDRAWER_ROLE")).toString();
-            await vault.grantRole(WITHDRAW_ROLE, bob.address);
+            const heroType = 1;
 
-            // Mở chức năng rút tiền của quỹ
-            await vault.setWithdrawEnable(true);
-            await vault.setMaxWithdrawAmount(parseEther(1 * 10 ** 6));
+            await heroContract.setBaseUrl("https://example.com/token/");
+            await heroContract.grantRole(await heroContract.MINTER_ROLE(), minter.address);
 
-            // // Alice nạp tiền vào quỹ để chuyển cho Bob
-            await token.transfer(alice.address, parseEther(1 * 10 ** 6));
-            await token.connect(alice).approve(vault.address, token.balanceOf(alice.address));
-            await vault.connect(alice).deposit(parseEther(500 * 10 ** 3));
+            const mintTx = await heroContract.connect(minter).mint(user.address, heroType);
 
-            // Bob rút tiền vào ví
-            await vault.connect(bob).withdraw(bob.address, parseEther(300 * 10 ** 3));
-            expect(await token.balanceOf(vault.address)).equal(parseEther(200 * 10 ** 3));
-            expect(await token.balanceOf(bob.address)).equal(parseEther(300 * 10 ** 3));
+            const address0 = "0x0000000000000000000000000000000000000000"
+            const tokenId = 0;
+
+            await expect(mintTx).to.emit(heroContract, "Transfer").withArgs(address0, user.address, tokenId);
+
+            const tokenURI = await heroContract.tokenURI(tokenId);
+
+            expect(tokenURI).to.equal(`https://example.com/token/${tokenId}`);
         });
     });
 
-    // Unhappy path
-    describe('Unhappy Path', () => {
-        it("Should not deposit, Insufficient account balance", async () => {
-            const { vault, token, alice } = await loadFixture(deployVaultFixture);
-            await token.transfer(alice.address, parseEther(1 * 10 ** 6));
-            await token.connect(alice).approve(vault.address, token.balanceOf(alice.address));
-            await expect(vault.connect(alice).deposit(parseEther(2 * 10 ** 6))).revertedWith('Insufficient account balance');
+    describe("List Token IDs", () => {
+        it("Should return an empty array if the owner does not have any tokens", async () => {
+            const { heroContract, user } = await loadFixture(deployVaultFixture);
+            const list = await heroContract.listTokenIDs(user.address);
+            expect(list).to.be.an("array");
+            expect(list).to.be.empty;
         });
 
-        it("Should not withdraw, Withdraw is not available", async () => {
-            const { vault, token, alice, bob } = await loadFixture(deployVaultFixture);
+        it("Should return an array of token IDs for the owner", async () => {
+            const { heroContract, user } = await loadFixture(deployVaultFixture);
+            await heroContract.mint(user.address, 0);
+            await heroContract.mint(user.address, 1);
 
-            // Cấp quyền rút tiền cho Bob
-            let WITHDRAW_ROLE = keccak256(Buffer.from("WITHDRAWER_ROLE")).toString();
-            await vault.grantRole(WITHDRAW_ROLE, bob.address);
+            const listBigNumber = await heroContract.listTokenIDs(user.address);
+            const list: number[] = [];
 
-            // Tắt chức năng rút tiền của quỹ
-            await vault.setWithdrawEnable(false);
-            await vault.setMaxWithdrawAmount(parseEther(1 * 10 ** 6));
+            listBigNumber.forEach((n: any) => {
+                list.push(n.toNumber());
+            });
 
-            // Alice nạp tiền vào quỹ để chuyển cho Bob
-            await token.transfer(alice.address, parseEther(1 * 10 ** 6));
-            await token.connect(alice).approve(vault.address, token.balanceOf(alice.address));
-            await vault.connect(alice).deposit(parseEther(500 * 10 ** 3));
+            console.log(list);
 
-            // Bob rút tiền vào ví
-            await expect(vault.connect(bob).withdraw(bob.address, parseEther(300 * 10 ** 3))).revertedWith("Withdraw is not available");
-        });
-
-        it("Should not withdraw, Exceed maximum amount", async () => {
-            const { vault, token, alice, bob } = await loadFixture(deployVaultFixture);
-
-            // Cấp quyền rút tiền cho Bob
-            let WITHDRAW_ROLE = keccak256(Buffer.from("WITHDRAWER_ROLE")).toString();
-            await vault.grantRole(WITHDRAW_ROLE, bob.address);
-
-            // Tắt chức năng rút tiền của quỹ
-            await vault.setWithdrawEnable(true);
-            await vault.setMaxWithdrawAmount(parseEther(1 * 10 ** 3));
-
-            // Alice nạp tiền vào quỹ để chuyển cho Bob
-            await token.transfer(alice.address, parseEther(1 * 10 ** 6));
-            await token.connect(alice).approve(vault.address, token.balanceOf(alice.address));
-            await vault.connect(alice).deposit(parseEther(500 * 10 ** 3));
-
-            // Bob rút tiền vào ví
-            await expect(vault.connect(bob).withdraw(bob.address, parseEther(300 * 10 ** 3))).revertedWith("Exceed maximum amount");
-        });
-
-        it("Should not withdraw, Caller is not a withdrawer", async () => {
-            const { vault, token, alice, bob, carol } = await loadFixture(deployVaultFixture);
-
-            // Cấp quyền rút tiền cho Bob
-            let WITHDRAW_ROLE = keccak256(Buffer.from("WITHDRAWER_ROLE")).toString();
-            await vault.grantRole(WITHDRAW_ROLE, bob.address);
-
-            // Tắt chức năng rút tiền của quỹ
-            await vault.setWithdrawEnable(true);
-            await vault.setMaxWithdrawAmount(parseEther(1 * 10 ** 3));
-
-            // Alice nạp tiền vào quỹ để chuyển cho Bob
-            await token.transfer(alice.address, parseEther(1 * 10 ** 6));
-            await token.connect(alice).approve(vault.address, token.balanceOf(alice.address));
-            await vault.connect(alice).deposit(parseEther(500 * 10 ** 3));
-
-            // Bob rút tiền vào ví
-            await expect(vault.connect(carol).withdraw(bob.address, parseEther(300 * 10 ** 3))).revertedWith("Caller is not a withdrawer");
-        });
-
-        it("Should not withdraw, ERC20: transfer amount exceeds balance", async () => {
-            const { vault, token, alice, bob } = await loadFixture(deployVaultFixture);
-
-            // Cấp quyền rút tiền cho Bob
-            let WITHDRAW_ROLE = keccak256(Buffer.from("WITHDRAWER_ROLE")).toString();
-            await vault.grantRole(WITHDRAW_ROLE, bob.address);
-
-            // Tắt chức năng rút tiền của quỹ
-            await vault.setWithdrawEnable(true);
-            await vault.setMaxWithdrawAmount(parseEther(1 * 10 ** 6));
-
-            // Alice nạp tiền vào quỹ để chuyển cho Bob
-            await token.transfer(alice.address, parseEther(1 * 10 ** 6));
-            await token.connect(alice).approve(vault.address, token.balanceOf(alice.address));
-            await vault.connect(alice).deposit(parseEther(500 * 10 ** 3));
-
-            // Bob rút tiền vào ví
-            await expect(vault.connect(bob).withdraw(bob.address, parseEther(700 * 10 ** 3))).revertedWith("ERC20: transfer amount exceeds balance");
+            expect(list).to.have.lengthOf(2);
         });
     });
-})
+});
