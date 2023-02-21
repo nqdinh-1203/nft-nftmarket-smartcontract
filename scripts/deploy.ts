@@ -27,5 +27,3 @@ main().then(() => process.exit(0))
     console.error(error);
     process.exit(1);
   });
-
-// IERC721Receiver for what?

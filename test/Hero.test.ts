@@ -104,7 +104,9 @@ describe("Vault contract", () => {
 
         it("Should return an array of token IDs for the owner", async () => {
             const { heroContract, user } = await loadFixture(deployVaultFixture);
+            const [, user2] = await ethers.getSigners();
             await heroContract.mint(user.address, 0);
+            await heroContract.mint(user2.address, 1);
             await heroContract.mint(user.address, 1);
 
             const listBigNumber = await heroContract.listTokenIDs(user.address);
